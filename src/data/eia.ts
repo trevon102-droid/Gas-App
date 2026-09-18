@@ -78,13 +78,14 @@ async function queryEia(
 
   const response = await fetch(`${EIA_BASE_URL}?${params.toString()}`);
   if (!response.ok) {
-    throw new Error(`EIA request failed: ${response.status}`);
+    const body = await response.text().catch(() => "");
+    throw new Error(`EIA request failed: ${response.status} ${body.slice(0, 300)}`);
   }
 
   const json = await response.json();
   const rows: EiaResponseRow[] = json?.response?.data ?? [];
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error("EIA response had no data");
+    throw new Error(`EIA response had no data: ${JSON.stringify(json).slice(0, 300)}`);
   }
 
   return rows

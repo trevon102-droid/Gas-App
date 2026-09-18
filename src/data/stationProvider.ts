@@ -131,7 +131,10 @@ export async function getStationsForLocation(
       region,
       anchorSource: "live",
     };
-  } catch {
+  } catch (err) {
+    if (__DEV__) {
+      console.warn("[gas-app] EIA live price fetch failed, using simulated data:", err);
+    }
     return {
       stations: generateMockStations(center),
       region: null,
