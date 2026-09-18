@@ -2,6 +2,8 @@ import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
+import { Text, TouchableOpacity } from "react-native";
+import { AlertsScreen } from "@/screens/AlertsScreen";
 import { StationDetailScreen } from "@/screens/StationDetailScreen";
 import { StationListScreen } from "@/screens/StationListScreen";
 import { RootStackParamList } from "@/navigation/types";
@@ -27,12 +29,25 @@ export default function App() {
         <Stack.Screen
           name="StationList"
           component={StationListScreen}
-          options={{ title: "Gas App", headerLargeTitle: true }}
+          options={({ navigation }) => ({
+            title: "Gas App",
+            headerLargeTitle: true,
+            headerRight: () => (
+              <TouchableOpacity onPress={() => navigation.navigate("Alerts")} hitSlop={10}>
+                <Text style={{ color: "#3DDC84", fontSize: 22 }}>🔔</Text>
+              </TouchableOpacity>
+            ),
+          })}
         />
         <Stack.Screen
           name="StationDetail"
           component={StationDetailScreen}
           options={{ title: "Station" }}
+        />
+        <Stack.Screen
+          name="Alerts"
+          component={AlertsScreen}
+          options={{ title: "Price Alerts" }}
         />
       </Stack.Navigator>
     </NavigationContainer>

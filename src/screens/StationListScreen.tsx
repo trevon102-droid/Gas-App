@@ -9,19 +9,36 @@ import {
   View,
 } from "react-native";
 import { FuelTypeTabs } from "@/components/FuelTypeTabs";
+import { Sparkline } from "@/components/Sparkline";
 import { StationCard } from "@/components/StationCard";
+import { getAlertThresholds, shouldNotify } from "@/data/alerts";
+import { fetchRegionalHistory, RegionalContext, RegionalPricePoint } from "@/data/eia";
 import { getFavoriteIds, toggleFavorite } from "@/data/favorites";
-import { mockStationProvider } from "@/data/stationProvider";
+import { recordSnapshot } from "@/data/priceHistory";
+import { getStationsForLocation } from "@/data/stationProvider";
 import { useLocation } from "@/hooks/useLocation";
 import { RootStackParamList } from "@/navigation/types";
+import { sendPriceAlert } from "@/services/notifications";
 import { FuelType, Station, StationWithDistance } from "@/types";
 import { haversineMiles } from "@/utils/distance";
 
 type Props = NativeStackScreenProps<RootStackParamList, "StationList">;
 
+const EIA_API_KEY = process.env.EXPO_PUBLIC_EIA_API_KEY;
+
+const FUEL_LABELS: Record<FuelType, string> = {
+  regular: "Regular",
+  midgrade: "Midgrade",
+  premium: "Premium",
+  diesel: "Diesel",
+};
+
 export function StationListScreen({ navigation }: Props) {
   const { coords, loading: locationLoading, error: locationError, retry } = useLocation();
   const [stations, setStations] = useState<Station[]>([]);
+  const [region, setRegion] = useState<RegionalContext | null>(null);
+  const [anchorSource, setAnchorSource] = useState<"live" | "mock">("mock");
+  const [regionalHistory, setRegionalHistory] = useState<RegionalPricePoint[]>([]);
   const [loadingStations, setLoadingStations] = useState(false);
   const [fuelType, setFuelType] = useState<FuelType>("regular");
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
@@ -30,8 +47,11 @@ export function StationListScreen({ navigation }: Props) {
     if (!coords) return;
     setLoadingStations(true);
     try {
-      const result = await mockStationProvider.getStationsNear(coords);
-      setStations(result);
+      const result = await getStationsForLocation(coords, EIA_API_KEY);
+      setStations(result.stations);
+      setRegion(result.region);
+      setAnchorSource(result.anchorSource);
+      recordSnapshot(result.stations);
     } finally {
       setLoadingStations(false);
     }
@@ -44,6 +64,16 @@ export function StationListScreen({ navigation }: Props) {
   useEffect(() => {
     getFavoriteIds().then(setFavoriteIds);
   }, []);
+
+  useEffect(() => {
+    if (!region || !EIA_API_KEY) {
+      setRegionalHistory([]);
+      return;
+    }
+    fetchRegionalHistory(region, fuelType, EIA_API_KEY)
+      .then(setRegionalHistory)
+      .catch(() => setRegionalHistory([]));
+  }, [region, fuelType]);
 
   const stationsWithDistance: StationWithDistance[] = useMemo(() => {
     if (!coords) return [];
@@ -60,6 +90,36 @@ export function StationListScreen({ navigation }: Props) {
   }, [stations, coords, fuelType]);
 
   const cheapestId = stationsWithDistance[0]?.id;
+
+  // Check every fuel type's alert threshold against the current cheapest match, not just the selected tab.
+  useEffect(() => {
+    if (stationsWithDistance.length === 0) return;
+
+    getAlertThresholds().then((thresholds) => {
+      (Object.keys(thresholds) as FuelType[]).forEach((type) => {
+        const target = thresholds[type];
+        if (target === undefined) return;
+
+        const cheapest = [...stationsWithDistance].sort((a, b) => {
+          const priceA = a.prices.find((p) => p.fuelType === type)?.price ?? Infinity;
+          const priceB = b.prices.find((p) => p.fuelType === type)?.price ?? Infinity;
+          return priceA - priceB;
+        })[0];
+        const price = cheapest?.prices.find((p) => p.fuelType === type)?.price;
+
+        if (price !== undefined && price <= target) {
+          shouldNotify(type, cheapest.id, price).then((notify) => {
+            if (notify) {
+              sendPriceAlert(
+                `${FUEL_LABELS[type]} hit $${price.toFixed(2)}`,
+                `${cheapest.name} is ${cheapest.distanceMiles.toFixed(1)} mi away — at or below your $${target.toFixed(2)} target.`
+              );
+            }
+          });
+        }
+      });
+    });
+  }, [stationsWithDistance]);
 
   const handleToggleFavorite = useCallback(async (id: string) => {
     const next = await toggleFavorite(id);
@@ -80,8 +140,26 @@ export function StationListScreen({ navigation }: Props) {
       <View style={styles.header}>
         <Text style={styles.title}>Nearby Gas Prices</Text>
         {locationError && <Text style={styles.warning}>{locationError}</Text>}
+        {anchorSource === "mock" && (
+          <Text style={styles.hint}>
+            {EIA_API_KEY
+              ? "Couldn't reach live regional data — showing simulated prices."
+              : "Simulated prices. Add EXPO_PUBLIC_EIA_API_KEY for real regional anchoring (see README)."}
+          </Text>
+        )}
       </View>
       <FuelTypeTabs value={fuelType} onChange={setFuelType} />
+      {regionalHistory.length >= 2 && (
+        <View style={styles.trendCard}>
+          <Text style={styles.trendTitle}>
+            {region?.areaLabel} avg · {FUEL_LABELS[fuelType]} · last {regionalHistory.length} weeks
+          </Text>
+          <Sparkline
+            points={regionalHistory.map((p) => p.price)}
+            formatValue={(v) => `$${v.toFixed(2)}`}
+          />
+        </View>
+      )}
       <FlatList
         data={stationsWithDistance}
         keyExtractor={(item) => item.id}
@@ -135,6 +213,24 @@ const styles = StyleSheet.create({
     color: "#F5C518",
     fontSize: 12,
     marginTop: 4,
+  },
+  hint: {
+    color: "#6B7280",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  trendCard: {
+    backgroundColor: "#1C1F26",
+    borderRadius: 14,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  trendTitle: {
+    color: "#9AA0AC",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
   },
   list: {
     paddingBottom: 24,

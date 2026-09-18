@@ -1,4 +1,7 @@
+import { fetchLatestRegionalPrice, resolveRegion, RegionalContext } from "@/data/eia";
 import { Coordinates, FuelType, Station } from "@/types";
+
+const DEFAULT_REGULAR_BASE_PRICE = 3.15;
 
 /**
  * StationProvider is the seam for real price data. `mockStationProvider`
@@ -44,7 +47,8 @@ function milesToLonDegrees(miles: number, atLatitude: number): number {
 
 export function generateMockStations(
   center: Coordinates,
-  count = 14
+  count = 14,
+  regularBasePrice: number = DEFAULT_REGULAR_BASE_PRICE
 ): Station[] {
   const stations: Station[] = [];
 
@@ -60,7 +64,8 @@ export function generateMockStations(
       milesToLonDegrees(distanceMiles, center.latitude) * Math.sin(bearing);
 
     const brand = BRANDS[i % BRANDS.length];
-    const basePrice = 3.15 + rand() * 0.9;
+    // Spread stations +/- 12% around the real (or fallback) regional average.
+    const basePrice = regularBasePrice * (0.94 + rand() * 0.12);
 
     const prices = FUEL_TYPES.map((fuelType, idx) => {
       const bump = idx === 0 ? 0 : idx === 1 ? 0.25 : idx === 2 ? 0.55 : 0.4;
@@ -91,3 +96,46 @@ export const mockStationProvider: StationProvider = {
     return generateMockStations(center);
   },
 };
+
+export interface StationsResult {
+  stations: Station[];
+  region: RegionalContext | null;
+  /** "live" if stations are anchored to a real EIA regional average, "mock" if using the fixed fallback. */
+  anchorSource: "live" | "mock";
+}
+
+/**
+ * Fetches stations near `center`, anchoring the simulated per-station prices
+ * to a real EIA regional average when an API key is configured. Individual
+ * station-level live prices aren't available from any free public API, so
+ * stations are still simulated — but around a real, current market number
+ * instead of a hardcoded one.
+ */
+export async function getStationsForLocation(
+  center: Coordinates,
+  apiKey?: string
+): Promise<StationsResult> {
+  if (!apiKey) {
+    return {
+      stations: generateMockStations(center),
+      region: null,
+      anchorSource: "mock",
+    };
+  }
+
+  try {
+    const region = await resolveRegion(center);
+    const anchorPrice = await fetchLatestRegionalPrice(region, "regular", apiKey);
+    return {
+      stations: generateMockStations(center, 14, anchorPrice),
+      region,
+      anchorSource: "live",
+    };
+  } catch {
+    return {
+      stations: generateMockStations(center),
+      region: null,
+      anchorSource: "mock",
+    };
+  }
+}

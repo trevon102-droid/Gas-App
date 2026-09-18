@@ -22,6 +22,7 @@
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "plugins": ["expo-notifications"]
   }
 }
