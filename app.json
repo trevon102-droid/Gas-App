@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Gas App",
+    "slug": "gas-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0F1115",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gasapp.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Gas App uses your location to find nearby gas stations and sort them by distance."
+      }
+    },
+    "android": {
+      "package": "com.gasapp.mobile",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "adaptiveIcon": {
+        "backgroundColor": "#0F1115"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
