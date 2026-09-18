@@ -18,7 +18,14 @@ npm install
 npm start
 ```
 
-Then scan the QR code with **Expo Go** (iOS/Android) or press `i` / `a` for a simulator.
+Then scan the QR code with **Expo Go** (free, install from the App Store /
+Play Store — it's the app that actually runs this project; it's separate
+from Claude) or press `i` / `a` for a simulator.
+
+Your phone and the computer running `npm start` need to be on the same
+Wi-Fi network. If they aren't (e.g. phone on cellular), run
+`npx expo start --tunnel` instead — same QR flow, but works over the
+internet.
 
 ## Data source (real regional prices)
 
