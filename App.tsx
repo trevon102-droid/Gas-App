@@ -31,7 +31,6 @@ export default function App() {
           component={StationListScreen}
           options={({ navigation }) => ({
             title: "Gas App",
-            headerLargeTitle: true,
             headerRight: () => (
               <TouchableOpacity onPress={() => navigation.navigate("Alerts")} hitSlop={10}>
                 <Text style={{ color: "#3DDC84", fontSize: 22 }}>🔔</Text>

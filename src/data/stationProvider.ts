@@ -28,6 +28,21 @@ const BRANDS = [
 
 const FUEL_TYPES: FuelType[] = ["regular", "midgrade", "premium", "diesel"];
 
+const STREET_NAMES = [
+  "Main St",
+  "Broadway",
+  "Market St",
+  "Church St",
+  "Park Ave",
+  "Mill Rd",
+  "Highland Ave",
+  "River Rd",
+  "Franklin St",
+  "Union Ave",
+  "5th Ave",
+  "Washington Blvd",
+];
+
 // Deterministic pseudo-random generator so re-renders don't jitter prices.
 function seededRandom(seed: number): () => number {
   let value = seed;
@@ -77,11 +92,14 @@ export function generateMockStations(
       };
     });
 
+    const streetName = STREET_NAMES[Math.floor(rand() * STREET_NAMES.length)];
+    const houseNumber = 100 + Math.floor(rand() * 9800);
+
     stations.push({
       id: `station-${i}`,
       name: `${brand} #${1000 + i}`,
       brand,
-      address: `${100 + i * 12} Main St`,
+      address: `${houseNumber} ${streetName}`,
       latitude,
       longitude,
       prices,

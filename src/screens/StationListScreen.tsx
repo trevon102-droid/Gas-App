@@ -145,24 +145,26 @@ export function StationListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Nearby Gas Prices</Text>
-        {locationError && <Text style={styles.warning}>{locationError}</Text>}
-        {anchorSource === "mock" && (
-          <Text style={styles.hint}>
-            {EIA_API_KEY
-              ? "Couldn't reach live regional data — showing simulated prices."
-              : "Simulated prices. Add EXPO_PUBLIC_EIA_API_KEY for real regional anchoring (see README)."}
-          </Text>
-        )}
-      </View>
+      {(locationError || anchorSource === "mock") && (
+        <View style={styles.header}>
+          {locationError && <Text style={styles.warning}>{locationError}</Text>}
+          {anchorSource === "mock" && (
+            <Text style={styles.hint}>
+              {EIA_API_KEY
+                ? "Couldn't reach live regional data — showing simulated prices."
+                : "Simulated prices. Add EXPO_PUBLIC_EIA_API_KEY for real regional anchoring (see README)."}
+            </Text>
+          )}
+        </View>
+      )}
       <FuelTypeTabs value={fuelType} onChange={setFuelType} />
       {regionalHistory.length >= 2 && (
         <View style={styles.trendCard}>
           <Text style={styles.trendTitle}>
-            {historyArea?.label} avg · {FUEL_LABELS[fuelType]} · last {regionalHistory.length} weeks
+            {historyArea?.label} · {FUEL_LABELS[fuelType]} · {regionalHistory.length}wk
           </Text>
           <Sparkline
+            height={32}
             points={regionalHistory.map((p) => p.price)}
             formatValue={(v) => `$${v.toFixed(2)}`}
           />
@@ -209,36 +211,30 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  title: {
-    color: "#F5F6F8",
-    fontSize: 26,
-    fontWeight: "800",
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   warning: {
     color: "#F5C518",
     fontSize: 12,
-    marginTop: 4,
   },
   hint: {
     color: "#6B7280",
     fontSize: 12,
-    marginTop: 4,
   },
   trendCard: {
     backgroundColor: "#1C1F26",
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   trendTitle: {
     color: "#9AA0AC",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
-    marginBottom: 10,
+    marginBottom: 6,
   },
   list: {
     paddingBottom: 24,
