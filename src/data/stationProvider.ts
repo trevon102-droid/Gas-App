@@ -1,4 +1,5 @@
 import { fetchLatestRegionalPrice, resolveRegion, RegionCandidate } from "@/data/eia";
+import { fetchNearbyStationsWithRealPrices } from "@/data/googlePlaces";
 import { fetchNearbyRealStations } from "@/data/overpass";
 import { Coordinates, FuelType, Station } from "@/types";
 
@@ -154,33 +155,62 @@ export interface StationsResult {
   region: RegionCandidate | null;
   /** The full state -> PADD -> national fallback chain, for re-querying (e.g. a regional trend chart) without re-geocoding. */
   regionCandidates: RegionCandidate[] | null;
-  /** "live" if prices are anchored to a real EIA regional average, "mock" if using the fixed fallback baseline. */
+  /** "live" if prices are grounded in real data (Google per-station or EIA regional average), "mock" if using the fixed fallback baseline. */
   anchorSource: "live" | "mock";
-  /** "real" if station names/addresses/coordinates came from OpenStreetMap, "simulated" if generated as a fallback. */
+  /** "real" if station names/addresses/coordinates came from a real source (Google or OpenStreetMap), "simulated" if generated as a fallback. */
   locationSource: "real" | "simulated";
+  /** Where the displayed prices actually came from. */
+  priceSource: "google" | "eia-anchored" | "mock";
+}
+
+export interface StationApiKeys {
+  eiaApiKey?: string;
+  googlePlacesApiKey?: string;
 }
 
 /**
- * Fetches stations near `center`. Station names/addresses/coordinates come
- * from OpenStreetMap (real, free, no API key) when reachable; prices are
- * anchored to a real EIA regional average when an API key is configured.
- * Individual station-level live prices aren't available from any free
- * public API, so prices are always simulated -- but around real numbers
- * (real locations, real regional average) rather than fabricated ones.
+ * Fetches stations near `center`, preferring the most real data available:
+ *
+ * 1. Google Places (real stations + real per-station prices) when a
+ *    Google Places API key is configured -- this is the only source with
+ *    genuine live-ish per-station pricing, since nothing free publishes it.
+ * 2. OpenStreetMap for real station names/addresses/coordinates (free, no
+ *    key), with prices simulated but anchored to a real EIA regional
+ *    average when an EIA key is configured.
+ * 3. Fully simulated stations and prices as the last-resort fallback so
+ *    the app always works (offline, no keys, or every request failing).
  */
 export async function getStationsForLocation(
   center: Coordinates,
-  apiKey?: string
+  { eiaApiKey, googlePlacesApiKey }: StationApiKeys = {}
 ): Promise<StationsResult> {
+  if (googlePlacesApiKey) {
+    try {
+      const stations = await fetchNearbyStationsWithRealPrices(center, googlePlacesApiKey);
+      return {
+        stations: stations.slice(0, MAX_STATIONS),
+        region: null,
+        regionCandidates: null,
+        anchorSource: "live",
+        locationSource: "real",
+        priceSource: "google",
+      };
+    } catch (err) {
+      if (__DEV__) {
+        console.warn("[gas-app] Google Places fetch failed, falling back:", err);
+      }
+    }
+  }
+
   let anchorPrice = DEFAULT_REGULAR_BASE_PRICE;
   let anchorSource: "live" | "mock" = "mock";
   let region: RegionCandidate | null = null;
   let regionCandidates: RegionCandidate[] | null = null;
 
-  if (apiKey) {
+  if (eiaApiKey) {
     try {
       const candidates = await resolveRegion(center);
-      const { price, area } = await fetchLatestRegionalPrice(candidates, "regular", apiKey);
+      const { price, area } = await fetchLatestRegionalPrice(candidates, "regular", eiaApiKey);
       anchorPrice = price;
       anchorSource = "live";
       region = area;
@@ -212,5 +242,6 @@ export async function getStationsForLocation(
     regionCandidates,
     anchorSource,
     locationSource,
+    priceSource: anchorSource === "live" ? "eia-anchored" : "mock",
   };
 }

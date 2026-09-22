@@ -25,6 +25,7 @@ import { haversineMiles } from "@/utils/distance";
 type Props = NativeStackScreenProps<RootStackParamList, "StationList">;
 
 const EIA_API_KEY = process.env.EXPO_PUBLIC_EIA_API_KEY;
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 
 const FUEL_LABELS: Record<FuelType, string> = {
   regular: "Regular",
@@ -49,7 +50,10 @@ export function StationListScreen({ navigation }: Props) {
     if (!coords) return;
     setLoadingStations(true);
     try {
-      const result = await getStationsForLocation(coords, EIA_API_KEY);
+      const result = await getStationsForLocation(coords, {
+        eiaApiKey: EIA_API_KEY,
+        googlePlacesApiKey: GOOGLE_PLACES_API_KEY,
+      });
       setStations(result.stations);
       setRegionCandidates(result.regionCandidates);
       setAnchorSource(result.anchorSource);
