@@ -1,4 +1,4 @@
-import { fetchLatestRegionalPrice, resolveRegion, RegionalContext } from "@/data/eia";
+import { fetchLatestRegionalPrice, resolveRegion, RegionCandidate } from "@/data/eia";
 import { Coordinates, FuelType, Station } from "@/types";
 
 const DEFAULT_REGULAR_BASE_PRICE = 3.15;
@@ -99,7 +99,9 @@ export const mockStationProvider: StationProvider = {
 
 export interface StationsResult {
   stations: Station[];
-  region: RegionalContext | null;
+  region: RegionCandidate | null;
+  /** The full state -> PADD -> national fallback chain, for re-querying (e.g. a regional trend chart) without re-geocoding. */
+  regionCandidates: RegionCandidate[] | null;
   /** "live" if stations are anchored to a real EIA regional average, "mock" if using the fixed fallback. */
   anchorSource: "live" | "mock";
 }
@@ -119,16 +121,18 @@ export async function getStationsForLocation(
     return {
       stations: generateMockStations(center),
       region: null,
+      regionCandidates: null,
       anchorSource: "mock",
     };
   }
 
   try {
-    const region = await resolveRegion(center);
-    const anchorPrice = await fetchLatestRegionalPrice(region, "regular", apiKey);
+    const candidates = await resolveRegion(center);
+    const { price, area } = await fetchLatestRegionalPrice(candidates, "regular", apiKey);
     return {
-      stations: generateMockStations(center, 14, anchorPrice),
-      region,
+      stations: generateMockStations(center, 14, price),
+      region: area,
+      regionCandidates: candidates,
       anchorSource: "live",
     };
   } catch (err) {
@@ -138,6 +142,7 @@ export async function getStationsForLocation(
     return {
       stations: generateMockStations(center),
       region: null,
+      regionCandidates: null,
       anchorSource: "mock",
     };
   }

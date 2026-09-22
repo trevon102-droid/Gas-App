@@ -12,7 +12,7 @@ import { FuelTypeTabs } from "@/components/FuelTypeTabs";
 import { Sparkline } from "@/components/Sparkline";
 import { StationCard } from "@/components/StationCard";
 import { getAlertThresholds, shouldNotify } from "@/data/alerts";
-import { fetchRegionalHistory, RegionalContext, RegionalPricePoint } from "@/data/eia";
+import { fetchRegionalHistory, RegionCandidate, RegionalPricePoint } from "@/data/eia";
 import { getFavoriteIds, toggleFavorite } from "@/data/favorites";
 import { recordSnapshot } from "@/data/priceHistory";
 import { getStationsForLocation } from "@/data/stationProvider";
@@ -36,9 +36,10 @@ const FUEL_LABELS: Record<FuelType, string> = {
 export function StationListScreen({ navigation }: Props) {
   const { coords, loading: locationLoading, error: locationError, retry } = useLocation();
   const [stations, setStations] = useState<Station[]>([]);
-  const [region, setRegion] = useState<RegionalContext | null>(null);
+  const [regionCandidates, setRegionCandidates] = useState<RegionCandidate[] | null>(null);
   const [anchorSource, setAnchorSource] = useState<"live" | "mock">("mock");
   const [regionalHistory, setRegionalHistory] = useState<RegionalPricePoint[]>([]);
+  const [historyArea, setHistoryArea] = useState<RegionCandidate | null>(null);
   const [loadingStations, setLoadingStations] = useState(false);
   const [fuelType, setFuelType] = useState<FuelType>("regular");
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
@@ -49,7 +50,7 @@ export function StationListScreen({ navigation }: Props) {
     try {
       const result = await getStationsForLocation(coords, EIA_API_KEY);
       setStations(result.stations);
-      setRegion(result.region);
+      setRegionCandidates(result.regionCandidates);
       setAnchorSource(result.anchorSource);
       recordSnapshot(result.stations);
     } finally {
@@ -66,14 +67,21 @@ export function StationListScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!region || !EIA_API_KEY) {
+    if (!regionCandidates || !EIA_API_KEY) {
       setRegionalHistory([]);
+      setHistoryArea(null);
       return;
     }
-    fetchRegionalHistory(region, fuelType, EIA_API_KEY)
-      .then(setRegionalHistory)
-      .catch(() => setRegionalHistory([]));
-  }, [region, fuelType]);
+    fetchRegionalHistory(regionCandidates, fuelType, EIA_API_KEY)
+      .then(({ points, area }) => {
+        setRegionalHistory(points);
+        setHistoryArea(area);
+      })
+      .catch(() => {
+        setRegionalHistory([]);
+        setHistoryArea(null);
+      });
+  }, [regionCandidates, fuelType]);
 
   const stationsWithDistance: StationWithDistance[] = useMemo(() => {
     if (!coords) return [];
@@ -152,7 +160,7 @@ export function StationListScreen({ navigation }: Props) {
       {regionalHistory.length >= 2 && (
         <View style={styles.trendCard}>
           <Text style={styles.trendTitle}>
-            {region?.areaLabel} avg · {FUEL_LABELS[fuelType]} · last {regionalHistory.length} weeks
+            {historyArea?.label} avg · {FUEL_LABELS[fuelType]} · last {regionalHistory.length} weeks
           </Text>
           <Sparkline
             points={regionalHistory.map((p) => p.price)}
