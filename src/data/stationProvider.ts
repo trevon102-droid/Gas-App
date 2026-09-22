@@ -1,7 +1,9 @@
 import { fetchLatestRegionalPrice, resolveRegion, RegionCandidate } from "@/data/eia";
+import { fetchNearbyRealStations } from "@/data/overpass";
 import { Coordinates, FuelType, Station } from "@/types";
 
 const DEFAULT_REGULAR_BASE_PRICE = 3.15;
+const MAX_STATIONS = 30;
 
 /**
  * StationProvider is the seam for real price data. `mockStationProvider`
@@ -11,6 +13,15 @@ const DEFAULT_REGULAR_BASE_PRICE = 3.15;
  */
 export interface StationProvider {
   getStationsNear(center: Coordinates): Promise<Station[]>;
+}
+
+interface StationLocation {
+  id: string;
+  name: string;
+  brand: string;
+  address: string;
+  latitude: number;
+  longitude: number;
 }
 
 const BRANDS = [
@@ -52,6 +63,14 @@ function seededRandom(seed: number): () => number {
   };
 }
 
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return hash % 233280;
+}
+
 function milesToLatDegrees(miles: number): number {
   return miles / 69;
 }
@@ -60,12 +79,8 @@ function milesToLonDegrees(miles: number, atLatitude: number): number {
   return miles / (69 * Math.cos((atLatitude * Math.PI) / 180));
 }
 
-export function generateMockStations(
-  center: Coordinates,
-  count = 14,
-  regularBasePrice: number = DEFAULT_REGULAR_BASE_PRICE
-): Station[] {
-  const stations: Station[] = [];
+function generateMockLocations(center: Coordinates, count = 14): StationLocation[] {
+  const locations: StationLocation[] = [];
 
   for (let i = 0; i < count; i++) {
     const rand = seededRandom(i * 7919 + 13);
@@ -79,6 +94,30 @@ export function generateMockStations(
       milesToLonDegrees(distanceMiles, center.latitude) * Math.sin(bearing);
 
     const brand = BRANDS[i % BRANDS.length];
+    const streetName = STREET_NAMES[Math.floor(rand() * STREET_NAMES.length)];
+    const houseNumber = 100 + Math.floor(rand() * 9800);
+
+    locations.push({
+      id: `sim-${i}`,
+      name: `${brand} #${1000 + i}`,
+      brand,
+      address: `${houseNumber} ${streetName}`,
+      latitude,
+      longitude,
+    });
+  }
+
+  return locations;
+}
+
+// Deterministic per-station pricing, seeded from the station id so real
+// (OSM) and simulated locations both get stable, non-jittery prices.
+function generatePricesForLocations(
+  locations: StationLocation[],
+  regularBasePrice: number
+): Station[] {
+  return locations.map((location) => {
+    const rand = seededRandom(hashString(location.id));
     // Spread stations +/- 12% around the real (or fallback) regional average.
     const basePrice = regularBasePrice * (0.94 + rand() * 0.12);
 
@@ -92,21 +131,16 @@ export function generateMockStations(
       };
     });
 
-    const streetName = STREET_NAMES[Math.floor(rand() * STREET_NAMES.length)];
-    const houseNumber = 100 + Math.floor(rand() * 9800);
+    return { ...location, prices };
+  });
+}
 
-    stations.push({
-      id: `station-${i}`,
-      name: `${brand} #${1000 + i}`,
-      brand,
-      address: `${houseNumber} ${streetName}`,
-      latitude,
-      longitude,
-      prices,
-    });
-  }
-
-  return stations;
+export function generateMockStations(
+  center: Coordinates,
+  count = 14,
+  regularBasePrice: number = DEFAULT_REGULAR_BASE_PRICE
+): Station[] {
+  return generatePricesForLocations(generateMockLocations(center, count), regularBasePrice);
 }
 
 export const mockStationProvider: StationProvider = {
@@ -120,48 +154,63 @@ export interface StationsResult {
   region: RegionCandidate | null;
   /** The full state -> PADD -> national fallback chain, for re-querying (e.g. a regional trend chart) without re-geocoding. */
   regionCandidates: RegionCandidate[] | null;
-  /** "live" if stations are anchored to a real EIA regional average, "mock" if using the fixed fallback. */
+  /** "live" if prices are anchored to a real EIA regional average, "mock" if using the fixed fallback baseline. */
   anchorSource: "live" | "mock";
+  /** "real" if station names/addresses/coordinates came from OpenStreetMap, "simulated" if generated as a fallback. */
+  locationSource: "real" | "simulated";
 }
 
 /**
- * Fetches stations near `center`, anchoring the simulated per-station prices
- * to a real EIA regional average when an API key is configured. Individual
- * station-level live prices aren't available from any free public API, so
- * stations are still simulated — but around a real, current market number
- * instead of a hardcoded one.
+ * Fetches stations near `center`. Station names/addresses/coordinates come
+ * from OpenStreetMap (real, free, no API key) when reachable; prices are
+ * anchored to a real EIA regional average when an API key is configured.
+ * Individual station-level live prices aren't available from any free
+ * public API, so prices are always simulated -- but around real numbers
+ * (real locations, real regional average) rather than fabricated ones.
  */
 export async function getStationsForLocation(
   center: Coordinates,
   apiKey?: string
 ): Promise<StationsResult> {
-  if (!apiKey) {
-    return {
-      stations: generateMockStations(center),
-      region: null,
-      regionCandidates: null,
-      anchorSource: "mock",
-    };
+  let anchorPrice = DEFAULT_REGULAR_BASE_PRICE;
+  let anchorSource: "live" | "mock" = "mock";
+  let region: RegionCandidate | null = null;
+  let regionCandidates: RegionCandidate[] | null = null;
+
+  if (apiKey) {
+    try {
+      const candidates = await resolveRegion(center);
+      const { price, area } = await fetchLatestRegionalPrice(candidates, "regular", apiKey);
+      anchorPrice = price;
+      anchorSource = "live";
+      region = area;
+      regionCandidates = candidates;
+    } catch (err) {
+      if (__DEV__) {
+        console.warn("[gas-app] EIA live price fetch failed, using simulated baseline:", err);
+      }
+    }
   }
 
+  let locations: StationLocation[];
+  let locationSource: "real" | "simulated";
   try {
-    const candidates = await resolveRegion(center);
-    const { price, area } = await fetchLatestRegionalPrice(candidates, "regular", apiKey);
-    return {
-      stations: generateMockStations(center, 14, price),
-      region: area,
-      regionCandidates: candidates,
-      anchorSource: "live",
-    };
+    const real = await fetchNearbyRealStations(center);
+    locations = real.slice(0, MAX_STATIONS);
+    locationSource = "real";
   } catch (err) {
     if (__DEV__) {
-      console.warn("[gas-app] EIA live price fetch failed, using simulated data:", err);
+      console.warn("[gas-app] Real station lookup failed, using simulated locations:", err);
     }
-    return {
-      stations: generateMockStations(center),
-      region: null,
-      regionCandidates: null,
-      anchorSource: "mock",
-    };
+    locations = generateMockLocations(center);
+    locationSource = "simulated";
   }
+
+  return {
+    stations: generatePricesForLocations(locations, anchorPrice),
+    region,
+    regionCandidates,
+    anchorSource,
+    locationSource,
+  };
 }

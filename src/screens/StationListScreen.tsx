@@ -38,6 +38,7 @@ export function StationListScreen({ navigation }: Props) {
   const [stations, setStations] = useState<Station[]>([]);
   const [regionCandidates, setRegionCandidates] = useState<RegionCandidate[] | null>(null);
   const [anchorSource, setAnchorSource] = useState<"live" | "mock">("mock");
+  const [locationSource, setLocationSource] = useState<"real" | "simulated">("simulated");
   const [regionalHistory, setRegionalHistory] = useState<RegionalPricePoint[]>([]);
   const [historyArea, setHistoryArea] = useState<RegionCandidate | null>(null);
   const [loadingStations, setLoadingStations] = useState(false);
@@ -52,6 +53,7 @@ export function StationListScreen({ navigation }: Props) {
       setStations(result.stations);
       setRegionCandidates(result.regionCandidates);
       setAnchorSource(result.anchorSource);
+      setLocationSource(result.locationSource);
       recordSnapshot(result.stations);
     } finally {
       setLoadingStations(false);
@@ -145,14 +147,19 @@ export function StationListScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      {(locationError || anchorSource === "mock") && (
+      {(locationError || anchorSource === "mock" || locationSource === "simulated") && (
         <View style={styles.header}>
           {locationError && <Text style={styles.warning}>{locationError}</Text>}
+          {locationSource === "simulated" && (
+            <Text style={styles.hint}>
+              Couldn't reach OpenStreetMap — station list is simulated.
+            </Text>
+          )}
           {anchorSource === "mock" && (
             <Text style={styles.hint}>
               {EIA_API_KEY
-                ? "Couldn't reach live regional data — showing simulated prices."
-                : "Simulated prices. Add EXPO_PUBLIC_EIA_API_KEY for real regional anchoring (see README)."}
+                ? "Couldn't reach live regional data — prices are simulated."
+                : "Prices are simulated. Add EXPO_PUBLIC_EIA_API_KEY for real regional anchoring (see README)."}
             </Text>
           )}
         </View>

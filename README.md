@@ -27,11 +27,22 @@ Wi-Fi network. If they aren't (e.g. phone on cellular), run
 `npx expo start --tunnel` instead — same QR flow, but works over the
 internet.
 
-## Data source (real regional prices)
+## Data sources (real stations, real regional prices)
 
 No source publishes free, live, per-station gas prices — GasBuddy has no
 public API, and services that do (CollectAPI, RapidAPI feeds) require a
-paid key. So this app takes the best available real signal:
+paid key. So this app combines the best available real signals for each
+half of the problem:
+
+**Station names/addresses/locations** come from **OpenStreetMap**
+(`src/data/overpass.ts`, via the free public Overpass API — no key
+needed). These are real gas stations near you, crowd-sourced map data.
+If Overpass is unreachable, it falls back to a small set of simulated
+stations so the app still works offline.
+
+**Prices** are still simulated per station (nothing free publishes
+real-time per-station prices anywhere), but anchored to a real number
+instead of a guess:
 
 - **[EIA](https://www.eia.gov/opendata/register.php)** (U.S. Energy
   Information Administration) publishes free weekly average gas prices by
@@ -50,7 +61,7 @@ paid key. So this app takes the best available real signal:
   for your state.
 - Without a key (or outside the US, or if the request fails), it falls
   back to simulated prices around a fixed baseline — the app never breaks,
-  it just tells you it's using sample data.
+  it just tells you which parts of what you're seeing are simulated.
 
 To go fully live station-by-station, implement `StationProvider` in
 `src/data/stationProvider.ts` against a paid feed and swap it in.
@@ -76,7 +87,8 @@ App.tsx                        navigation root (list → detail → alerts)
 src/
   types.ts                     Station / FuelPrice types
   data/
-    stationProvider.ts         pluggable price data source (EIA-anchored + mock fallback)
+    stationProvider.ts         pluggable data source (real OSM stations + EIA-anchored prices, mock fallback)
+    overpass.ts                OpenStreetMap client (real station names/addresses/coordinates)
     eia.ts                     EIA API client (regional average + history)
     priceHistory.ts            AsyncStorage-backed per-station price snapshots
     alerts.ts                  AsyncStorage-backed alert thresholds + notify de-dupe
